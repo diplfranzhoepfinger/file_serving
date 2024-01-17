@@ -14,10 +14,11 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_vfs_fat.h"
-#include "esp_spiffs.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
 #include "driver/sdspi_host.h"
@@ -29,6 +30,10 @@
 #include "file_serving_example_common.h"
 
 static const char *TAG = "example_mount";
+
+
+// Handle of the wear levelling library instance
+static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
 #ifdef CONFIG_EXAMPLE_MOUNT_SD_CARD
 
@@ -125,35 +130,34 @@ esp_err_t example_mount_storage(const char* base_path)
 /* Function to initialize SPIFFS */
 esp_err_t example_mount_storage(const char* base_path)
 {
-    ESP_LOGI(TAG, "Initializing SPIFFS");
+	ESP_LOGI(TAG, "Mounting FAT filesystem");
 
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = base_path,
-        .partition_label = NULL,
+	esp_vfs_fat_mount_config_t conf = {
         .max_files = 5,   // This sets the maximum number of files that can be open at the same time
-        .format_if_mount_failed = true
+        .format_if_mount_failed = true,
+		.allocation_unit_size = CONFIG_WL_SECTOR_SIZE
     };
 
-    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    esp_err_t ret = esp_vfs_fat_spiflash_mount_rw_wl(base_path, "storage", &conf, &s_wl_handle);
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
             ESP_LOGE(TAG, "Failed to mount or format filesystem");
         } else if (ret == ESP_ERR_NOT_FOUND) {
-            ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+            ESP_LOGE(TAG, "Failed to find FAT partition");
         } else {
-            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Failed to initialize FAT (%s)", esp_err_to_name(ret));
         }
         return ret;
     }
 
-    size_t total = 0, used = 0;
-    ret = esp_spiffs_info(NULL, &total, &used);
+    uint64_t total = 0, used = 0;
+    ret = esp_vfs_fat_info(base_path, &total, &used);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to get FAT partition information (%s)", esp_err_to_name(ret));
         return ret;
     }
 
-    ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+    ESP_LOGI(TAG, "Partition size: total: %" PRIu64 ", used: %" PRIu64 "", total, used);
     return ESP_OK;
 }
 
